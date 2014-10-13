@@ -2,7 +2,7 @@
 from flask import Flask
 from flask import g
 from contextlib import closing
-import os, psycopg2
+import os, psycopg2, datetime
 
 DB_SCHEMA= """
 DROP TABLE IF EXISTS entries;
@@ -13,6 +13,11 @@ CREATE TABLE entries (
     created TIMESTAMP NOT NULL
     )
 """
+
+DB_ENTRY_INSERT= """
+INSERT INTO entries (title, text, created) VALUES (%s, %s, %s)
+"""
+
 
 app= Flask(__name__)
 app.config['DATABASE']= os.environ.get(
@@ -34,7 +39,7 @@ def init_db():
 
 def get_database_connection():
     db= getattr(g, 'db', None)
-    if g.db is None:
+    if db is None:
         g.db= db= connect_db()
     return db
 
@@ -49,7 +54,14 @@ def teardown_request(exception):
         else:
             db.commit()
         db.close()
-    
+
+def write_entry(title, text):
+    if not(title and text):
+        raise ValueError("Title and text required for writing entry")
+    con= get_database_connection()
+    cur= con.cursor()
+    now= datetime.datetime.utcnow()
+    cur.execute(DB_ENTRY_INSERT, [title, text, now])
 
 @app.route('/')
 def hello():
