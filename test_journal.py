@@ -29,6 +29,28 @@ def db(test_app, request):
 
     request.addfinalizer(cleanup)
 
+@pytest.fixture(scope='function')
+def with_entry(db, request):
+    from journal import write_entry
+    expected= (u'Test Title', u'Test Text')
+    with app.test_request_context('/'):
+        write_entry(*expected)
+        # manually commit transaction here to aviod rollback due to 
+        # handled exceptions
+        get_database_connection().commit()
+
+        def cleanup():
+            with app.test_request_context('/'):
+                con= get_database_connection()
+                cur= con.cursor()
+                cur.execute("DELETE FROM entries")
+                # and here as well
+                con.commit()
+        request.addfinalizer(cleanup)
+
+        return expected
+
+
 @pytest.yield_fixture(scope='function')
 def req_context(db):
     """run tests within a test request context so that 'g' is present"""
@@ -36,6 +58,8 @@ def req_context(db):
         yield
         con= get_database_connection()
         con.rollback()
+
+
 
 def run_independent_query(query, params=[]):
     con= get_database_connection()
@@ -51,3 +75,31 @@ def test_write_entry(req_context):
     assert len(rows)== 1
     for val in expected:
         assert val in rows[0]
+
+def test_get_all_entries_empty(req_context):
+    from journal import get_all_entries
+    entries= get_all_entries()
+    assert len(entries)== 0
+
+def test_get_all_entries(req_context):
+    from journal import get_all_entries, write_entry
+    expected= ("My Title", "My Text")
+    write_entry(*expected)
+    entries= get_all_entries()
+    assert len(entries)== 1
+    for entry in entries:
+        assert expected[0]== entry['title']
+        assert expected[1]== entry['text']
+        assert 'created' in entry
+
+def test_empty_listing(db):
+    actual= app.test_client().get('/').data
+    expected= 'No entries here so far'
+    assert expected in actual
+
+def test_listing(with_entry):
+    expected= with_entry
+    actual= app.test_client().get('/').data
+    for value in expected:
+        assert value in actual
+
